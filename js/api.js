@@ -4,7 +4,8 @@ import {
   formatOpenAIRealtimeError,
 } from "./errors.js";
 
-const REALTIME_MODEL = "gpt-realtime-whisper";
+const REALTIME_MODEL = "gpt-realtime";
+const TRANSCRIPTION_MODEL = "gpt-realtime-whisper";
 const REALTIME_URL = `wss://api.openai.com/v1/realtime?model=${REALTIME_MODEL}`;
 const REALTIME_CONNECT_TIMEOUT_MS = 10000;
 
@@ -75,6 +76,7 @@ export async function transcribeAudioFile(apiKey, file) {
 
 export function createRealtimeClient({ apiKey, onTranscriptDelta, onStatus, onError, onClose }) {
   let socket = null;
+  let hasAudio = false;
 
   function connect() {
     return new Promise((resolve, reject) => {
@@ -149,15 +151,13 @@ export function createRealtimeClient({ apiKey, onTranscriptDelta, onStatus, onEr
       JSON.stringify({
         type: "session.update",
         session: {
-          type: "transcription",
+          type: "realtime",
+          output_modalities: ["text"],
           audio: {
             input: {
-              format: {
-                type: "audio/pcm",
-                rate: 24000,
-              },
+              format: { type: "audio/pcm", rate: 24000 },
               transcription: {
-                model: REALTIME_MODEL,
+                model: TRANSCRIPTION_MODEL,
               },
               turn_detection: null,
             },
@@ -175,11 +175,14 @@ export function createRealtimeClient({ apiKey, onTranscriptDelta, onStatus, onEr
         audio: base64Audio,
       })
     );
+    hasAudio = true;
   }
 
   function commitAudio() {
     if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    if (!hasAudio) return;
     socket.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+    hasAudio = false;
   }
 
   function close() {

@@ -411,6 +411,44 @@ button:hover:not(:disabled) {
   }
 }
 
+.interview-card {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.interview-card + .interview-card {
+  margin-top: 10px;
+}
+
+.interview-card-header {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.interview-card-meta {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.interview-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.interview-card-actions button {
+  font-size: 0.85rem;
+  padding: 6px 12px;
+  border-radius: 8px;
+  width: auto;
+}
+
 @media (min-width: 720px) {
   main {
     padding: 32px 32px 100px;

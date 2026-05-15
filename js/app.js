@@ -1,33 +1,25 @@
 import {
   getApiKey,
   setApiKey,
-    if (state.realtimeClient) {
-      state.realtimeClient.close();
-      state.realtimeClient = null;
-    }
-    state.hadApiDrop = true;
-    state.reconnectAttempted = true;
-    showToast(
-      error?.message ||
-        "Live transcription unavailable. Recording audio backup only.",
-      "error"
-    );
-    setBanner(
-      document.getElementById("recordingBanner"),
-      true,
-      "Live transcription unavailable - audio backup is active"
-    );
+  hasApiKey,
+  isOnboardingComplete,
+  markOnboardingComplete,
+} from "./storage.js";
+import {
+  showScreen,
+  showToast,
   setBanner,
   setMarkdown,
-  state.recordingStart = Date.now();
-  startRecordingTimer();
-  setScreen("recording");
+  fillList,
+  formatTimer,
+  autoScrollToBottom,
 } from "./ui.js";
 import { createRealtimeClient, validateApiKey, transcribeAudioFile } from "./api.js";
 import { startAudioCapture, encodePcm16ToBase64, requestMicrophone } from "./audio.js";
 import { resetTranscript, appendTranscript, getTranscript, setTranscript } from "./transcript.js";
 import { runPostProcessing } from "./postprocess.js";
 import { downloadText, downloadBlob } from "./download.js";
+import { saveInterview, getAllInterviews, deleteInterview } from "./history.js";
 
 const PROCESSING_MESSAGES = [
   "Identifying speakers...",
@@ -81,6 +73,7 @@ function bootApp() {
     return;
   }
   setScreen("home");
+  loadPastInterviews();
 }
 
 function bindEvents() {
@@ -144,6 +137,9 @@ function setScreen(name) {
   state.previousScreen = state.currentScreen;
   state.currentScreen = name;
   showScreen(name);
+  if (name === "home") {
+    loadPastInterviews();
+  }
 }
 
 async function handleOnboardingApiSave() {
@@ -392,6 +388,7 @@ async function processInterview() {
     state.formattedMarkdown = result.markdown || buildRawMarkdown(transcript, metadata);
     state.insights = result.insights || null;
     renderResults(state.formattedMarkdown, state.insights);
+    persistInterview(metadata);
   } catch (error) {
     processingError(error?.message);
   }
@@ -435,13 +432,14 @@ function renderResults(markdown, insights) {
   }
 
   const audioButton = document.getElementById("downloadAudioButton");
-  audioButton.hidden = !state.audioBlob || (!state.hadApiDrop && state.audioSource !== "import");
+  audioButton.hidden = !state.audioBlob;
 }
 
 function renderFallback(transcript) {
   const metadata = buildMetadata();
   state.formattedMarkdown = buildRawMarkdown(transcript, metadata);
   renderResults(state.formattedMarkdown, null);
+  persistInterview(metadata);
 }
 
 function downloadTranscript() {
@@ -525,7 +523,7 @@ function startRealtimeCommitter() {
     if (state.realtimeClient && state.realtimeClient.isConnected()) {
       state.realtimeClient.commitAudio();
     }
-  }, 2000);
+  }, 5000);
 }
 
 function stopRealtimeCommitter() {
@@ -622,6 +620,109 @@ function slugify(value) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "");
+}
+
+async function persistInterview(metadata) {
+  if (!state.formattedMarkdown) return;
+  const durationSeconds = state.recordingStart
+    ? Math.max(0, Math.round((Date.now() - state.recordingStart) / 1000))
+    : 0;
+  try {
+    await saveInterview({
+      date: state.recordingDateIso || new Date().toISOString().slice(0, 10),
+      intervieweeName: state.intervieweeName || "",
+      intervieweeCompany: state.intervieweeCompany || "",
+      markdown: state.formattedMarkdown,
+      insights: state.insights,
+      duration: durationSeconds,
+    });
+  } catch (error) {
+    console.error("Failed to save interview to history:", error);
+  }
+}
+
+async function loadPastInterviews() {
+  const listEl = document.getElementById("pastInterviewsList");
+  const emptyEl = document.getElementById("pastInterviewsEmpty");
+  if (!listEl || !emptyEl) return;
+
+  let interviews;
+  try {
+    interviews = await getAllInterviews();
+  } catch (error) {
+    console.error("Failed to load interview history:", error);
+    return;
+  }
+
+  listEl.innerHTML = "";
+
+  if (!interviews || interviews.length === 0) {
+    emptyEl.hidden = false;
+    return;
+  }
+
+  emptyEl.hidden = true;
+
+  interviews.sort((a, b) => (b.id - a.id));
+
+  interviews.forEach((interview) => {
+    const card = document.createElement("div");
+    card.className = "interview-card";
+
+    const header = document.createElement("div");
+    header.className = "interview-card-header";
+    const label = interview.intervieweeName || "Interview";
+    const company = interview.intervieweeCompany ? ` at ${interview.intervieweeCompany}` : "";
+    header.textContent = `${label}${company}`;
+
+    const meta = document.createElement("div");
+    meta.className = "interview-card-meta";
+    const dateStr = interview.date || "Unknown date";
+    const durStr = interview.duration ? formatDuration(interview.duration) : "";
+    meta.textContent = durStr ? `${dateStr}  ·  ${durStr}` : dateStr;
+
+    const actions = document.createElement("div");
+    actions.className = "interview-card-actions";
+
+    const viewBtn = document.createElement("button");
+    viewBtn.className = "secondary";
+    viewBtn.textContent = "View";
+    viewBtn.addEventListener("click", () => {
+      const date = interview.date || new Date().toISOString().slice(0, 10);
+      const labelSlug = slugify(interview.intervieweeCompany || interview.intervieweeName || "unknown");
+      const filename = `interview-${date}-${labelSlug}.md`;
+      downloadText(filename, interview.markdown);
+      showToast("Downloaded!", "success");
+    });
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.className = "ghost";
+    deleteBtn.textContent = "Delete";
+    deleteBtn.addEventListener("click", async () => {
+      if (!confirm("Delete this interview? This cannot be undone.")) return;
+      try {
+        await deleteInterview(interview.id);
+        loadPastInterviews();
+      } catch (error) {
+        showToast("Failed to delete interview.", "error");
+      }
+    });
+
+    actions.appendChild(viewBtn);
+    actions.appendChild(deleteBtn);
+
+    card.appendChild(header);
+    card.appendChild(meta);
+    card.appendChild(actions);
+    listEl.appendChild(card);
+  });
+}
+
+function formatDuration(seconds) {
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remaining = seconds % 60;
+  return remaining > 0 ? `${minutes}m ${remaining}s` : `${minutes}m`;
 }
 
 function registerServiceWorker() {

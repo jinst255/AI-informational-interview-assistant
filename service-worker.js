@@ -1,4 +1,4 @@
-const CACHE_NAME = "ai-interview-assistant-v1";
+const CACHE_NAME = "ai-interview-assistant-v4";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -12,6 +12,7 @@ const APP_SHELL = [
   "./js/storage.js",
   "./js/download.js",
   "./js/ui.js",
+  "./js/history.js",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
 ];
