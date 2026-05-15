@@ -1,3 +1,5 @@
+import { parseOpenAIErrorResponse, formatOpenAIErrorMessage } from "./errors.js";
+
 const MODEL = "gpt-4o-mini";
 const MAX_CHARS = 100000;
 
@@ -170,22 +172,40 @@ function splitTranscript(transcript) {
 }
 
 async function callOpenAI(apiKey, prompt) {
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0.2,
-    }),
-  });
+  if (!apiKey) {
+    throw new Error("Missing OpenAI API key");
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
+  let response;
+
+  try {
+    response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.2,
+      }),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error("OpenAI request timed out. Try again.");
+    }
+    throw new Error("Network error while contacting OpenAI.");
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(errorText || "OpenAI API request failed");
+    const errorInfo = await parseOpenAIErrorResponse(response, "OpenAI API request failed");
+    throw new Error(formatOpenAIErrorMessage(errorInfo));
   }
 
   const data = await response.json();
@@ -203,3 +223,4 @@ function safeJsonParse(content) {
 function dedupe(list) {
   return Array.from(new Set(list.filter(Boolean)));
 }
+

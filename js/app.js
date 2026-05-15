@@ -1,22 +1,31 @@
 import {
   getApiKey,
   setApiKey,
-  hasApiKey,
-  isOnboardingComplete,
-  markOnboardingComplete,
-} from "./storage.js";
-import {
-  showScreen,
-  showToast,
+    if (state.realtimeClient) {
+      state.realtimeClient.close();
+      state.realtimeClient = null;
+    }
+    state.hadApiDrop = true;
+    state.reconnectAttempted = true;
+    showToast(
+      error?.message ||
+        "Live transcription unavailable. Recording audio backup only.",
+      "error"
+    );
+    setBanner(
+      document.getElementById("recordingBanner"),
+      true,
+      "Live transcription unavailable - audio backup is active"
+    );
   setBanner,
   setMarkdown,
-  fillList,
-  formatTimer,
-  autoScrollToBottom,
+  state.recordingStart = Date.now();
+  startRecordingTimer();
+  setScreen("recording");
 } from "./ui.js";
-import { createRealtimeClient, validateApiKey } from "./api.js";
+import { createRealtimeClient, validateApiKey, transcribeAudioFile } from "./api.js";
 import { startAudioCapture, encodePcm16ToBase64, requestMicrophone } from "./audio.js";
-import { resetTranscript, appendTranscript, getTranscript } from "./transcript.js";
+import { resetTranscript, appendTranscript, getTranscript, setTranscript } from "./transcript.js";
 import { runPostProcessing } from "./postprocess.js";
 import { downloadText, downloadBlob } from "./download.js";
 
@@ -34,10 +43,12 @@ const state = {
   recordingStart: null,
   recordingTimer: null,
   processingTimer: null,
+  realtimeCommitTimer: null,
   transcriptInitialized: false,
   audioBlob: null,
   hadApiDrop: false,
   reconnectAttempted: false,
+  audioSource: "recording",
   intervieweeName: "",
   intervieweeCompany: "",
   formattedMarkdown: "",
@@ -53,6 +64,14 @@ document.addEventListener("DOMContentLoaded", () => {
   bootApp();
   window.addEventListener("offline", () => {
     showToast("No internet - API calls require connection.", "error");
+  });
+  window.addEventListener("error", (event) => {
+    console.error("Unhandled error", event.error || event.message);
+    showToast("Unexpected error. Refresh the page and try again.", "error");
+  });
+  window.addEventListener("unhandledrejection", (event) => {
+    console.error("Unhandled rejection", event.reason);
+    showToast("Unexpected error. Refresh the page and try again.", "error");
   });
 });
 
@@ -99,6 +118,12 @@ function bindEvents() {
 
   document.getElementById("downloadTranscriptButton").addEventListener("click", downloadTranscript);
   document.getElementById("downloadAudioButton").addEventListener("click", downloadAudioBackup);
+  const importAudioButton = document.getElementById("importAudioButton");
+  const importAudioInput = document.getElementById("importAudioInput");
+  if (importAudioButton && importAudioInput) {
+    importAudioButton.addEventListener("click", () => importAudioInput.click());
+    importAudioInput.addEventListener("change", handleAudioImport);
+  }
   document.getElementById("resultsDoneButton").addEventListener("click", () => {
     resetRecordingState();
     setScreen("home");
@@ -131,9 +156,10 @@ async function handleOnboardingApiSave() {
 
   const saveButton = document.getElementById("onboardingApiSave");
   saveButton.disabled = true;
-  const isValid = await validateApiKey(apiKey).catch(() => false);
+  const validation = await validateApiKey(apiKey);
   saveButton.disabled = false;
-  if (!isValid) {
+  if (!validation.ok) {
+    errorText.textContent = validation.message || "That key did not work. Double-check it.";
     errorText.hidden = false;
     return;
   }
@@ -180,9 +206,9 @@ async function startRecording() {
     return;
   }
 
-  const isValid = await validateApiKey(apiKey).catch(() => false);
-  if (!isValid) {
-    showToast("Your API key was rejected. Check it in Settings.", "error");
+  const validation = await validateApiKey(apiKey);
+  if (!validation.ok) {
+    showToast(validation.message || "Your API key was rejected. Check it in Settings.", "error");
     setScreen("settings");
     return;
   }
@@ -191,6 +217,7 @@ async function startRecording() {
   state.intervieweeCompany = document.getElementById("intervieweeCompany").value.trim();
   state.hadApiDrop = false;
   state.reconnectAttempted = false;
+  state.audioSource = "recording";
   state.isRecording = true;
   resetTranscript();
   resetTranscriptUI();
@@ -211,10 +238,15 @@ async function startRecording() {
     await connectRealtime(apiKey);
   } catch (error) {
     state.isRecording = false;
-    showToast("Couldn't connect to OpenAI. Check your internet and try again.", "error");
+    showToast(
+      error?.message || "Couldn't connect to OpenAI. Check your internet and try again.",
+      "error"
+    );
     await stopAudioSession();
     return;
   }
+
+  startRealtimeCommitter();
 
   state.recordingStart = Date.now();
   startRecordingTimer();
@@ -225,8 +257,8 @@ async function connectRealtime(apiKey) {
   state.realtimeClient = createRealtimeClient({
     apiKey,
     onTranscriptDelta: handleTranscriptDelta,
-    onError: () => {
-      showToast("Couldn't connect to OpenAI. Check your internet and try again.", "error");
+    onError: (message) => {
+      showToast(message || "Couldn't connect to OpenAI. Check your internet and try again.", "error");
     },
     onClose: handleRealtimeClose,
   });
@@ -288,6 +320,7 @@ async function endRecording() {
     state.realtimeClient.commitAudio();
     state.realtimeClient.close();
   }
+  stopRealtimeCommitter();
 
   state.audioBlob = await stopAudioSession();
   setScreen("processing");
@@ -303,6 +336,7 @@ async function cancelRecording() {
   if (state.realtimeClient) {
     state.realtimeClient.close();
   }
+  stopRealtimeCommitter();
   await stopAudioSession();
   resetRecordingState();
   setScreen("home");
@@ -316,17 +350,40 @@ async function stopAudioSession() {
 }
 
 async function processInterview() {
-  const transcript = getTranscript();
-  const processingError = () => {
-    showToast("AI processing failed. Downloading your raw transcript instead.", "error");
+  let transcript = getTranscript();
+  const processingError = (message) => {
+    showToast(
+      message || "AI processing failed. Downloading your raw transcript instead.",
+      "error"
+    );
     renderFallback(transcript);
   };
 
   if (!transcript) {
-    processingError();
-    stopProcessingStatus();
-    setScreen("results");
-    return;
+    if (!state.audioBlob) {
+      processingError("No transcript received and no audio backup is available.");
+      stopProcessingStatus();
+      setScreen("results");
+      return;
+    }
+
+    const status = document.getElementById("processingStatus");
+    status.textContent = "Transcribing audio backup...";
+    try {
+      transcript = await transcribeAudioFile(getApiKey(), state.audioBlob);
+      if (!transcript) {
+        processingError("Audio transcription returned empty text.");
+        stopProcessingStatus();
+        setScreen("results");
+        return;
+      }
+      setTranscript(transcript);
+    } catch (error) {
+      processingError(error?.message || "Audio transcription failed.");
+      stopProcessingStatus();
+      setScreen("results");
+      return;
+    }
   }
 
   const metadata = buildMetadata();
@@ -336,7 +393,7 @@ async function processInterview() {
     state.insights = result.insights || null;
     renderResults(state.formattedMarkdown, state.insights);
   } catch (error) {
-    processingError();
+    processingError(error?.message);
   }
 
   stopProcessingStatus();
@@ -378,7 +435,7 @@ function renderResults(markdown, insights) {
   }
 
   const audioButton = document.getElementById("downloadAudioButton");
-  audioButton.hidden = !state.hadApiDrop || !state.audioBlob;
+  audioButton.hidden = !state.audioBlob || (!state.hadApiDrop && state.audioSource !== "import");
 }
 
 function renderFallback(transcript) {
@@ -447,6 +504,7 @@ function resetRecordingState() {
   state.audioBlob = null;
   state.hadApiDrop = false;
   state.reconnectAttempted = false;
+  state.audioSource = "recording";
   state.formattedMarkdown = "";
   state.insights = null;
   state.recordingDateIso = "";
@@ -459,6 +517,97 @@ function resetRecordingState() {
   if (companyInput) companyInput.value = "";
   resetTranscript();
   resetTranscriptUI();
+}
+
+function startRealtimeCommitter() {
+  stopRealtimeCommitter();
+  state.realtimeCommitTimer = setInterval(() => {
+    if (state.realtimeClient && state.realtimeClient.isConnected()) {
+      state.realtimeClient.commitAudio();
+    }
+  }, 2000);
+}
+
+function stopRealtimeCommitter() {
+  if (state.realtimeCommitTimer) {
+    clearInterval(state.realtimeCommitTimer);
+    state.realtimeCommitTimer = null;
+  }
+}
+
+async function handleAudioImport(event) {
+  const input = event.target;
+  const file = input.files && input.files[0];
+  input.value = "";
+  if (!file) return;
+
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    showToast("Add your OpenAI API key in Settings before importing audio.", "error");
+    setScreen("settings");
+    return;
+  }
+
+  const validation = await validateApiKey(apiKey);
+  if (!validation.ok) {
+    showToast(validation.message || "Your API key was rejected. Check it in Settings.", "error");
+    setScreen("settings");
+    return;
+  }
+
+  resetRecordingState();
+  state.audioSource = "import";
+  state.audioBlob = file;
+  setBanner(document.getElementById("recordingBanner"), false);
+  setBanner(document.getElementById("reconnectBanner"), false);
+
+  setScreen("processing");
+  stopProcessingStatus();
+  const status = document.getElementById("processingStatus");
+  status.textContent = "Transcribing audio...";
+
+  let transcript;
+  try {
+    transcript = await transcribeAudioFile(apiKey, file);
+  } catch (error) {
+    showToast(error?.message || "Audio transcription failed.", "error");
+    setScreen("home");
+    return;
+  }
+
+  if (!transcript) {
+    showToast("Transcription returned empty text.", "error");
+    setScreen("home");
+    return;
+  }
+
+  setTranscript(transcript);
+  const durationSeconds = await getAudioDurationSeconds(file).catch(() => null);
+  if (durationSeconds) {
+    state.recordingStart = Date.now() - Math.round(durationSeconds * 1000);
+  } else {
+    state.recordingStart = Date.now();
+  }
+
+  startProcessingStatus();
+  await processInterview();
+}
+
+function getAudioDurationSeconds(file) {
+  return new Promise((resolve, reject) => {
+    const audio = document.createElement("audio");
+    audio.preload = "metadata";
+    const url = URL.createObjectURL(file);
+    audio.src = url;
+    audio.onloadedmetadata = () => {
+      URL.revokeObjectURL(url);
+      resolve(audio.duration || 0);
+    };
+    audio.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Failed to read audio metadata"));
+    };
+  });
 }
 
 function togglePasswordVisibility(input, buttonId) {

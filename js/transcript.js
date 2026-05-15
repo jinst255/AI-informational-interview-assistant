@@ -9,6 +9,10 @@ export function appendTranscript(delta) {
   return rawTranscript;
 }
 
+export function setTranscript(value) {
+  rawTranscript = (value || "").toString();
+}
+
 export function getTranscript() {
   return rawTranscript.trim();
 }
