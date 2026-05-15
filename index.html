@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0c1014" />
+    <meta
+      name="description"
+      content="AI Interview Assistant - live transcription, speaker labels, and key insights for informational interviews."
+    />
+    <title>AI Interview Assistant</title>
+    <link rel="manifest" href="manifest.json" />
+    <link rel="icon" sizes="192x192" href="icons/icon-192.png" />
+    <link rel="icon" sizes="512x512" href="icons/icon-512.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="css/style.css" />
+  </head>
+  <body>
+    <div class="bg-grid" aria-hidden="true"></div>
+    <div class="bg-glow" aria-hidden="true"></div>
+
+    <header class="app-bar" id="appHeader">
+      <div class="app-title">AI Interview Assistant</div>
+      <button class="icon-button" id="settingsButton" aria-label="Settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path
+            d="M12 8.6a3.4 3.4 0 1 0 0 6.8 3.4 3.4 0 0 0 0-6.8Zm9.2 3.4-.9-.5c-.3-.2-.5-.6-.4-1l.2-1c.1-.4-.1-.9-.4-1.2l-1.5-1.5c-.3-.3-.8-.5-1.2-.4l-1 .2c-.4.1-.8-.1-1-.4l-.5-.9c-.2-.4-.6-.7-1.1-.7h-2.2c-.4 0-.9.3-1.1.7l-.5.9c-.2.3-.6.5-1 .4l-1-.2c-.4-.1-.9.1-1.2.4L4.6 7.7c-.3.3-.5.8-.4 1.2l.2 1c.1.4-.1.8-.4 1l-.9.5c-.4.2-.7.6-.7 1.1v2.2c0 .4.3.9.7 1.1l.9.5c.3.2.5.6.4 1l-.2 1c-.1.4.1.9.4 1.2l1.5 1.5c.3.3.8.5 1.2.4l1-.2c.4-.1.8.1 1 .4l.5.9c.2.4.6.7 1.1.7h2.2c.4 0 .9-.3 1.1-.7l.5-.9c.2-.3.6-.5 1-.4l1 .2c.4.1.9-.1 1.2-.4l1.5-1.5c.3-.3.5-.8.4-1.2l-.2-1c-.1-.4.1-.8.4-1l.9-.5c.4-.2.7-.6.7-1.1v-2.2c0-.4-.3-.9-.7-1.1Z"
+            fill="currentColor"
+          />
+        </svg>
+      </button>
+    </header>
+
+    <main id="screens">
+      <section class="screen" data-screen="onboarding-welcome" hidden>
+        <div class="screen-content">
+          <h1>Welcome to AI Interview Assistant</h1>
+          <p>
+            Capture informational interviews - live transcription, speaker labels,
+            and key insights automatically.
+          </p>
+          <button class="primary" id="onboardingWelcomeNext">Get Started -></button>
+        </div>
+      </section>
+
+      <section class="screen" data-screen="onboarding-api" hidden>
+        <div class="screen-content">
+          <h1>Connect to OpenAI</h1>
+          <p>
+            Enter your OpenAI API key. It is stored only on your device and is
+            never shared with anyone except OpenAI.
+          </p>
+          <label class="field">
+            <span>OpenAI API Key</span>
+            <div class="input-row">
+              <input
+                id="onboardingApiKey"
+                type="password"
+                placeholder="sk-..."
+                autocomplete="off"
+              />
+              <button class="ghost" id="onboardingApiToggle" type="button">
+                Show
+              </button>
+            </div>
+          </label>
+          <a
+            class="inline-link"
+            href="https://platform.openai.com/api-keys"
+            target="_blank"
+            rel="noreferrer"
+            >Need a key? Get one at platform.openai.com</a
+          >
+          <p class="subtle">Each ~45-minute interview costs roughly $0.80 in API usage.</p>
+          <p class="error-text" id="onboardingApiError" hidden>
+            That key did not work. Double-check it and try again.
+          </p>
+          <button class="primary" id="onboardingApiSave" disabled>
+            Save and Continue ->
+          </button>
+        </div>
+      </section>
+
+      <section class="screen" data-screen="onboarding-mic" hidden>
+        <div class="screen-content">
+          <h1>Allow Microphone Access</h1>
+          <p>
+            The app needs your microphone to transcribe the conversation live.
+            When your browser asks, tap Allow.
+          </p>
+          <p class="error-text" id="onboardingMicError" hidden>
+            Microphone access was denied. Open your browser's site settings and
+            allow microphone access for this page.
+          </p>
+          <button class="primary" id="onboardingMicRequest">
+            Request Microphone Access ->
+          </button>
+        </div>
+      </section>
+
+      <section class="screen" data-screen="onboarding-ready" hidden>
+        <div class="screen-content">
+          <h1>You're all set.</h1>
+          <p>
+            Open the app before your next informational interview and tap New
+            Interview to begin.
+          </p>
+          <button class="primary" id="onboardingReady">Start Using the App -></button>
+        </div>
+      </section>
+
+      <section class="screen" data-screen="home" hidden>
+        <div class="screen-content">
+          <h1 class="hero">AI Informational Interview Assistant</h1>
+          <p class="subtle">
+            Live transcription, speaker labels, and key insights for your next
+            informational interview.
+          </p>
+          <button class="primary" id="newInterviewButton">New Interview</button>
+          <div class="card">
+            <h2>Past Interviews</h2>
+            <p class="subtle">History will appear here in v2.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen" data-screen="pre-interview" hidden>
+        <div class="screen-content">
+          <h1>New Interview</h1>
+          <label class="field">
+            <span>Interviewee Name (optional)</span>
+            <input id="intervieweeName" type="text" placeholder="e.g. Sarah" />
+          </label>
+          <label class="field">
+            <span>Company (optional)</span>
+            <input id="intervieweeCompany" type="text" placeholder="e.g. Anthropic" />
+          </label>
+          <button class="primary" id="startRecordingButton">Start Recording</button>
+          <button class="ghost" id="preInterviewBack"><- Back</button>
+        </div>
+      </section>
+
+      <section class="screen" data-screen="recording" hidden>
+        <div class="screen-content">
+          <div class="recording-header">
+            <div class="recording-dot" aria-hidden="true"></div>
+            <div class="recording-status" id="recordingStatus">
+              Recording - 0:00
+            </div>
+          </div>
+          <div class="banner warning" id="recordingBanner" hidden>
+            Warning: Transcription paused - audio backup is active
+          </div>
+          <div class="banner success" id="reconnectBanner" hidden>
+            Transcription reconnected
+          </div>
+          <div class="transcript" id="liveTranscript">
+            <p class="placeholder">Transcript will appear here as you speak...</p>
+          </div>
+          <button class="primary danger" id="endInterviewButton">End Interview</button>
+          <button class="ghost" id="cancelRecordingLink">Cancel and discard</button>
+        </div>
+      </section>
+
+      <section class="screen" data-screen="processing" hidden>
+        <div class="screen-content center">
+          <div class="spinner" aria-hidden="true"></div>
+          <h1>Processing...</h1>
+          <p id="processingStatus">Identifying speakers...</p>
+        </div>
+      </section>
+
+      <section class="screen" data-screen="results" hidden>
+        <div class="screen-content">
+          <h1>Interview Complete</h1>
+          <div class="card">
+            <h2>Transcript</h2>
+            <div id="resultsMarkdown" class="markdown"></div>
+          </div>
+          <div class="card">
+            <h2>Key Insights</h2>
+            <div class="insights-grid">
+              <div>
+                <h3>Key Insights</h3>
+                <ul id="insightsList"></ul>
+              </div>
+              <div>
+                <h3>Action Items</h3>
+                <ul id="actionItemsList"></ul>
+              </div>
+              <div>
+                <h3>Resources Mentioned</h3>
+                <ul id="resourcesList"></ul>
+              </div>
+            </div>
+          </div>
+          <button class="primary" id="downloadTranscriptButton">
+            Download Transcript (.md)
+          </button>
+          <button class="secondary" id="downloadAudioButton" hidden>
+            Download Audio Backup (.webm)
+          </button>
+          <button class="ghost" id="resultsDoneButton">Done</button>
+        </div>
+      </section>
+
+      <section class="screen" data-screen="settings" hidden>
+        <div class="screen-content">
+          <h1>Settings</h1>
+          <label class="field">
+            <span>OpenAI API Key</span>
+            <div class="input-row">
+              <input id="settingsApiKey" type="password" placeholder="sk-..." />
+              <button class="ghost" id="settingsApiToggle" type="button">
+                Show
+              </button>
+            </div>
+          </label>
+          <a
+            class="inline-link"
+            href="https://platform.openai.com/api-keys"
+            target="_blank"
+            rel="noreferrer"
+            >How to get an API key -></a
+          >
+          <button class="primary" id="saveSettingsButton">Save</button>
+          <p class="subtle">
+            AI Interview Assistant - MIT License -
+            <a
+              class="inline-link"
+              href="https://github.com/your-username/AI-informational-interview-AI-assistant"
+              target="_blank"
+              rel="noreferrer"
+              >GitHub -></a
+            >
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <div id="toastRoot" class="toast-root" aria-live="polite"></div>
+
+    <noscript>
+      <div class="noscript">This app requires JavaScript to run.</div>
+    </noscript>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script type="module" src="js/app.js"></script>
+  </body>
+</html>
